@@ -1,28 +1,25 @@
     // server.js
     const express = require('express');
     const cors = require('cors');
-    const { IncomingForm } = require('formidable'); // Importa IncomingForm diretamente
-    // const fs = require('fs'); // Não é mais necessário, pois não salvaremos arquivos em disco
+    const { IncomingForm } = require('formidable');
 
     const app = express();
-    const PORT = process.env.PORT || 3001; // Render injeta a porta em process.env.PORT
+    const PORT = process.env.PORT || 3001;
 
-    // Configura o CORS para permitir requisições do seu frontend (localhost:3000 ou a porta que você usa)
-    // ESTA URL SERÁ ATUALIZADA APÓS O DEPLOY DO FRONTEND NO VERCEL
+    // Configura o CORS para permitir requisições do seu frontend
+    // REMOVIDA A BARRA FINAL DA URL DO ORIGIN PARA COMBINAR EXATAMENTE COM O NAVEGADOR
     app.use(cors({
-        origin: 'https://nfe-viewer-frontend.vercel.app/' // Altere para a porta que seu frontend está usando (ex: 8000, 8080)
+        origin: 'https://nfe-viewer-frontend.vercel.app' // <<-- AGORA SEM A BARRA FINAL
     }));
 
     // Rota para o proxy da API FSist
     app.post('/proxy-fsist-gerarpdf', async (req, res) => {
         console.log('Proxy: Recebida requisição para /proxy-fsist-gerarpdf');
-        // Importa node-fetch e FormData dinamicamente para evitar ERR_REQUIRE_ESM
         const { default: fetch } = await import('node-fetch');
-        const { FormData, File } = await import('formdata-node'); // Importa FormData e File para ambiente Node.js
+        const { FormData, File } = await import('formdata-node');
 
         const form = new IncomingForm({
             multiples: false,
-            // Configura para lidar com o arquivo em memória (buffer)
             fileWriteStreamHandler: (file) => {
                 const buffers = [];
                 const writable = new (require('stream').Writable)();
@@ -31,7 +28,7 @@
                     callback();
                 };
                 file.on('end', () => {
-                    file.buffer = Buffer.concat(buffers); // Armazena o buffer no objeto 'file'
+                    file.buffer = Buffer.concat(buffers);
                 });
                 return writable;
             }
@@ -46,7 +43,6 @@
             const xmlFile = files.arquivo;
             const fileToProcess = Array.isArray(xmlFile) ? xmlFile[0] : xmlFile;
 
-            // Agora, verificamos se o buffer do arquivo existe
             if (!fileToProcess || !fileToProcess.buffer) {
                 console.error("Proxy: Nenhum arquivo XML foi enviado ou o buffer do arquivo não foi encontrado.");
                 return res.status(400).json({ error: 'Nenhum arquivo XML foi enviado ou ocorreu um problema no upload (buffer não encontrado).' });
@@ -56,8 +52,6 @@
 
             try {
                 const formData = new FormData();
-                // Adiciona o arquivo XML ao FormData para enviar para a API FSist
-                // Usamos o buffer do arquivo diretamente
                 formData.append('arquivo', new File([fileToProcess.buffer], fileToProcess.originalFilename, { type: fileToProcess.mimetype }));
 
                 const randomNumber = Math.floor(Math.random() * (9999 - 0 + 1)) + 0;
