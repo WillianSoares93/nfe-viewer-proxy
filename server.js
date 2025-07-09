@@ -10,7 +10,7 @@
     // Configura o CORS para permitir requisições do seu frontend (localhost:3000 ou a porta que você usa)
     // ESTA URL SERÁ ATUALIZADA APÓS O DEPLOY DO FRONTEND NO VERCEL
     app.use(cors({
-        origin: 'http://localhost:3000' // Altere para a porta que seu frontend está usando (ex: 8000, 8080)
+        origin: 'https://nfe-viewer-frontend-ggfin1a3u-willian-soares-projects.vercel.app/' // Altere para a porta que seu frontend está usando (ex: 8000, 8080)
     }));
 
     // Rota para o proxy da API FSist
