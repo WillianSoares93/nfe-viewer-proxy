@@ -10,6 +10,8 @@ const PORT = process.env.PORT || 3001;
 // REMOVIDA A BARRA FINAL DA URL DO ORIGIN PARA COMBINAR EXATAMENTE COM O NAVEGADOR
 app.use(cors({
     origin: process.env.FRONTEND_URL
+    origin: process.env.FRONTEND_URL1
+    origin: process.env.FRONTEND_URL2
 }));
 
 // Rota para o proxy da API FSist
