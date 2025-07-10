@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 3001;
 // Configura o CORS para permitir requisições do seu frontend
 // REMOVIDA A BARRA FINAL DA URL DO ORIGIN PARA COMBINAR EXATAMENTE COM O NAVEGADOR
 app.use(cors({
-     origin: 'https://nfeinfo.vercel.app' // <<-- ESTA LINHA DEVE ESTAR SEM A BARRA FINAL
+    origin: process.env.FRONTEND_URL
 }));
 
 // Rota para o proxy da API FSist
@@ -106,54 +106,55 @@ app.post('/proxy-fsist-gerarpdf', async (req, res) => {
             // Não há arquivos temporários para remover, pois tudo é processado em memória
         }
     });
+}); // <-- Fechamento da rota app.post('/proxy-fsist-gerarpdf')
 
-    // Rota para o proxy de download do ZIP da API FSist
-    app.get('/proxy-fsist-downloadzip', async (req, res) => {
-        console.log('Proxy: Recebida requisição para /proxy-fsist-downloadzip');
-        const { default: fetch } = await import('node-fetch');
+// Rota para o proxy de download do ZIP da API FSist
+app.get('/proxy-fsist-downloadzip', async (req, res) => {
+    console.log('Proxy: Recebida requisição para /proxy-fsist-downloadzip');
+    const { default: fetch } = await import('node-fetch');
 
-        const { id, arq } = req.query;
+    const { id, arq } = req.query;
 
-        if (!id || !arq) {
-            console.error("Proxy: Parâmetros ausentes para download do ZIP.");
-            return res.status(400).json({ error: 'Parâmetros "id" ou "arq" ausentes para o download do ZIP.' });
-        }
+    if (!id || !arq) {
+        console.error("Proxy: Parâmetros ausentes para download do ZIP.");
+        return res.status(400).json({ error: 'Parâmetros "id" ou "arq" ausentes para o download do ZIP.' });
+    }
 
-        try {
-            const zipDownloadUrl = `https://www.fsist.com.br/comandos.aspx?t=gerarpdfdownload&id=${id}&arq=${encodeURIComponent(arq)}`;
-            console.log(`Proxy: Baixando ZIP da FSist: ${zipDownloadUrl}`);
+    try {
+        const zipDownloadUrl = `https://www.fsist.com.br/comandos.aspx?t=gerarpdfdownload&id=${id}&arq=${encodeURIComponent(arq)}`;
+        console.log(`Proxy: Baixando ZIP da FSist: ${zipDownloadUrl}`);
 
-            const zipResponse = await fetch(zipDownloadUrl);
-            console.log(`Proxy: Resposta download ZIP FSist Status: ${zipResponse.status}`);
+        const zipResponse = await fetch(zipDownloadUrl);
+        console.log(`Proxy: Resposta download ZIP FSist Status: ${zipResponse.status}`);
 
-            if (!zipResponse.ok) {
-                const errorText = await zipResponse.text();
-                console.error(`Proxy: Erro ao baixar ZIP da API FSist: ${zipResponse.status} - ${errorText}`);
-                if (errorText.trim().startsWith('<!DOCTYPE html>')) {
-                     return res.status(502).json({
-                        error: `API FSist retornou uma página HTML de erro ao tentar baixar o ZIP (Status: ${zipResponse.status}).`,
-                        details: errorText.substring(0, 500) + '...'
-                    });
-                }
-                return res.status(zipResponse.status).json({
-                    error: `Erro ao baixar o arquivo ZIP: ${zipResponse.status} ${zipResponse.statusText}`,
-                    details: errorText
+        if (!zipResponse.ok) {
+            const errorText = await zipResponse.text();
+            console.error(`Proxy: Erro ao baixar ZIP da API FSist: ${zipResponse.status} - ${errorText}`);
+            if (errorText.trim().startsWith('<!DOCTYPE html>')) {
+                 return res.status(502).json({
+                    error: `API FSist retornou uma página HTML de erro ao tentar baixar o ZIP (Status: ${zipResponse.status}).`,
+                    details: errorText.substring(0, 500) + '...'
                 });
             }
-
-            res.setHeader('Content-Type', zipResponse.headers.get('Content-Type') || 'application/zip');
-            res.setHeader('Content-Disposition', zipResponse.headers.get('Content-Disposition') || `attachment; filename="${arq}"`);
-
-            zipResponse.body.pipe(res);
-            console.log('Proxy: ZIP enviado com sucesso para o frontend.');
-
-        } catch (error) {
-            console.error("Proxy: Erro interno no try-catch do proxy ao baixar ZIP:", error);
-            res.status(500).json({ error: 'Erro interno do servidor ao baixar o arquivo ZIP.', details: error.message });
+            return res.status(zipResponse.status).json({
+                error: `Erro ao baixar o arquivo ZIP: ${zipResponse.status} ${zipResponse.statusText}`,
+                details: errorText
+            });
         }
-    });
 
-    app.listen(PORT, () => {
-        console.log(`Servidor proxy rodando em http://localhost:${PORT}`);
-        console.log(`Certifique-se de que seu frontend esteja em http://localhost:3000 (ou a porta configurada no CORS)`);
-    });
+        res.setHeader('Content-Type', zipResponse.headers.get('Content-Type') || 'application/zip');
+        res.setHeader('Content-Disposition', zipResponse.headers.get('Content-Disposition') || `attachment; filename="${arq}"`);
+
+        zipResponse.body.pipe(res);
+        console.log('Proxy: ZIP enviado com sucesso para o frontend.');
+
+    } catch (error) {
+        console.error("Proxy: Erro interno no try-catch do proxy ao baixar ZIP:", error);
+        res.status(500).json({ error: 'Erro interno do servidor ao baixar o arquivo ZIP.', details: error.message });
+    }
+}); // <-- Fechamento da rota app.get('/proxy-fsist-downloadzip')
+
+app.listen(PORT, () => {
+    console.log(`Servidor proxy rodando em http://localhost:${PORT}`);
+    console.log(`Certifique-se de que seu frontend esteja em http://localhost:3000 (ou a porta configurada no CORS)`);
+}); // <-- Fechamento do callback e da chamada app.listen
