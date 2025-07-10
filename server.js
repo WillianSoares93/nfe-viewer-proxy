@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 3001;
 // Configura o CORS para permitir requisições do seu frontend
 // REMOVIDA A BARRA FINAL DA URL DO ORIGIN PARA COMBINAR EXATAMENTE COM O NAVEGADOR
 app.use(cors({
-    origin: 'https://nfeinfo.vercel.app' // <<-- ESTA LINHA DEVE ESTAR SEM A BARRA FINAL
+    origin: process.env.FRONTEND_URL
 }));
 
 // Rota para o proxy da API FSist
