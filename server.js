@@ -89,7 +89,13 @@ app.post('/proxy-fsist-gerarpdf', async (req, res) => {
             console.log(`Proxy: Fluxo de consulta por chave (baixarxml.html): ${chave}, Tipo: ${tipoDocumento}, Token reCAPTCHA: ${token.substring(0, 10)}...`);
 
             const fsistFormData = new FormData();
-            fsistFormData.append('chave', chave);
+            
+            // MUDANÇA AQUI: Enviar um XML mínimo com a chave de acesso, nomeado como a chave.xml
+            // Isso tenta satisfazer a exigência de um "arquivo XML" com o nome da chave.
+            const minimalXmlContent = `<chave>${chave}</chave>`; // Um XML mínimo contendo apenas a chave
+            fsistFormData.append('arquivo', new File([minimalXmlContent], `${chave}.xml`, { type: 'application/xml' })); 
+            
+            fsistFormData.append('chave', chave); // Manter também como campo de texto, por segurança
             fsistFormData.append('captcha', token); // FSist espera 'captcha' para o token reCAPTCHA
             fsistFormData.append('cte', tipoDocumento === 'CTe' ? '1' : '0'); // FSist espera 'cte' como '1' ou '0'
 
@@ -102,7 +108,7 @@ app.post('/proxy-fsist-gerarpdf', async (req, res) => {
             const randomNumber = Math.floor(Math.random() * (9999 - 0 + 1)) + 0;
             apiUrlFsist = `https://www.fsist.com.br/comandos.aspx?t=gerarpdf&arquivos=1&nomedoarquivo=&r=${randomNumber}`;
             
-            fetchMethod = "POST"; // MUDANÇA CRUCIAL: Voltar para POST
+            fetchMethod = "POST"; // Manter como POST
             fetchBody = fsistFormData; // Enviar o FormData com os parâmetros
             
             // Handler para a resposta da FSist no fluxo de consulta por chave
