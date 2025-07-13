@@ -24,20 +24,21 @@ app.post('/proxy-fsist-gerarpdf', async (req, res) => {
     const { default: fetch } = await import('node-fetch');
     const { FormData, File } = await import('formdata-node');
 
+    // Use formidable para parsear o formulário, pois ele pode conter campos de texto e arquivos
     const form = new IncomingForm({
-        multiples: false,
-        fileWriteStreamHandler: (file) => {
-            const buffers = [];
-            const writable = new (require('stream').Writable)();
-            writable._write = (chunk, encoding, callback) => {
-                buffers.push(chunk);
-                callback();
-            };
-            file.on('end', () => {
-                file.buffer = Buffer.concat(buffers);
-            });
-            return writable;
-        }
+        multiples: false, // Define se múltiplos arquivos podem ser enviados para o mesmo campo
+        // fileWriteStreamHandler: (file) => { // Removido, pois multer já lida com buffers
+        //     const buffers = [];
+        //     const writable = new (require('stream').Writable)();
+        //     writable._write = (chunk, encoding, callback) => {
+        //         buffers.push(chunk);
+        //         callback();
+        //     };
+        //     file.on('end', () => {
+        //         file.buffer = Buffer.concat(buffers);
+        //     });
+        //     return writable;
+        // }
     });
 
     form.parse(req, async (err, fields, files) => {
@@ -46,27 +47,34 @@ app.post('/proxy-fsist-gerarpdf', async (req, res) => {
             return res.status(500).json({ error: 'Erro interno do servidor ao processar o upload.' });
         }
 
-        const xmlFile = files.arquivo;
-        const fileToProcess = Array.isArray(xmlFile) ? xmlFile[0] : xmlFile;
+        // Extrai os campos de texto do formulário
+        const chave = Array.isArray(fields.chave) ? fields.chave[0] : fields.chave;
+        const token = Array.isArray(fields.token) ? fields.token[0] : fields.token;
+        const tipoDocumento = Array.isArray(fields.tipoDocumento) ? fields.tipoDocumento[0] : fields.tipoDocumento;
 
-        if (!fileToProcess || !fileToProcess.buffer) {
-            console.error("Proxy: Nenhum arquivo XML foi enviado ou o buffer do arquivo não foi encontrado.");
-            return res.status(400).json({ error: 'Nenhum arquivo XML foi enviado ou ocorreu um problema no upload (buffer não encontrado).' });
+        if (!chave || chave.length !== 44) {
+            console.error("Proxy: Chave de acesso inválida ou ausente.");
+            return res.status(400).json({ error: 'Chave de acesso inválida ou ausente.' });
+        }
+        if (!token) {
+            console.error("Proxy: Token reCAPTCHA ausente.");
+            return res.status(400).json({ error: 'Token reCAPTCHA ausente.' });
         }
 
-        console.log(`Proxy: Arquivo XML recebido: ${fileToProcess.originalFilename}, tamanho: ${fileToProcess.size}`);
+        console.log(`Proxy: Chave recebida: ${chave}, Tipo: ${tipoDocumento}, Token reCAPTCHA: ${token.substring(0, 10)}...`);
 
         try {
-            const formData = new FormData();
-            formData.append('arquivo', new File([fileToProcess.buffer], fileToProcess.originalFilename, { type: fileToProcess.mimetype }));
-
+            // A API da FSist espera a chave e o token como parâmetros de URL para a consulta
             const randomNumber = Math.floor(Math.random() * (9999 - 0 + 1)) + 0;
-            const apiUrlFsist = `https://www.fsist.com.br/comandos.aspx?t=gerarpdf&arquivos=1&nomedoarquivo=&r=${randomNumber}`;
+            let apiUrlFsist = `https://www.fsist.com.br/comandos.aspx?t=gerarpdf&arquivos=1&nomedoarquivo=&r=${randomNumber}`;
+            
+            apiUrlFsist += `&chave=${encodeURIComponent(chave)}`;
+            apiUrlFsist += `&captcha=${encodeURIComponent(token)}`; // O token reCAPTCHA é o "captcha" para a FSist
+            apiUrlFsist += `&cte=${tipoDocumento === 'CTe' ? '1' : '0'}`; // Adiciona o tipo de documento
 
-            console.log(`Proxy: Enviando XML para FSist: ${apiUrlFsist}`);
+            console.log(`Proxy: Enviando para FSist: ${apiUrlFsist}`);
             const responseFsist = await fetch(apiUrlFsist, {
-                method: "POST",
-                body: formData,
+                method: "GET", // A API da FSist parece usar GET para a consulta inicial
             });
 
             console.log(`Proxy: Resposta da FSist Status: ${responseFsist.status}`);
@@ -103,7 +111,29 @@ app.post('/proxy-fsist-gerarpdf', async (req, res) => {
             const resultDataFsist = JSON.parse(jsonMatchFsist[0]);
             console.log("Proxy: Resposta da API FSist (JSON parseado):", resultDataFsist);
 
-            res.json(resultDataFsist);
+            // Adapte a resposta para o frontend, incluindo linkPDF e linkXML
+            // A FSist pode retornar um link direto ou um ID para download.
+            // Se retornar um ID, você precisará usar o endpoint `/proxy-fsist-downloadzip` para obter o arquivo.
+            
+            if (resultDataFsist.linkPDF || resultDataFsist.linkXML) {
+                res.json({
+                    status: 'OK',
+                    linkPDF: resultDataFsist.linkPDF,
+                    linkXML: resultDataFsist.linkXML
+                });
+            } else if (resultDataFsist.id && resultDataFsist.arq) {
+                 // Se o FSist retornar um ID e nome de arquivo, construa os links de download
+                const downloadPdfLink = `${PROXY_BASE_URL}/proxy-fsist-downloadzip?id=${resultDataFsist.id}&arq=${encodeURIComponent(resultDataFsist.arq)}.pdf`;
+                const downloadXmlLink = `${PROXY_BASE_URL}/proxy-fsist-downloadzip?id=${resultDataFsist.id}&arq=${encodeURIComponent(resultDataFsist.arq)}.xml`;
+
+                res.json({
+                    status: 'OK',
+                    linkPDF: downloadPdfLink,
+                    linkXML: downloadXmlLink
+                });
+            } else {
+                res.status(500).json({ status: 'ERROR', message: 'Resposta inesperada da API FSist.', details: resultDataFsist });
+            }
 
         } catch (error) {
             console.error("Proxy: Erro interno no try-catch do proxy ao gerar PDF:", error);
