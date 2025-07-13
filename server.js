@@ -26,6 +26,19 @@ app.post('/proxy-fsist-gerarpdf', async (req, res) => {
 
     const form = new IncomingForm({
         multiples: false,
+        // RE-ADICIONANDO fileWriteStreamHandler para garantir que file.buffer seja populado
+        fileWriteStreamHandler: (file) => {
+            const buffers = [];
+            const writable = new (require('stream').Writable)();
+            writable._write = (chunk, encoding, callback) => {
+                buffers.push(chunk);
+                callback();
+            };
+            file.on('end', () => {
+                file.buffer = Buffer.concat(buffers);
+            });
+            return writable;
+        }
     });
 
     form.parse(req, async (err, fields, files) => {
@@ -39,7 +52,7 @@ app.post('/proxy-fsist-gerarpdf', async (req, res) => {
         const token = Array.isArray(fields.token) ? fields.token[0] : fields.token;
         const tipoDocumento = Array.isArray(fields.tipoDocumento) ? fields.tipoDocumento[0] : fields.tipoDocumento;
 
-        const xmlFile = files.arquivo;
+        const xmlFile = files.arquivo; // `files.arquivo` é o campo de upload do index.html
         const fileToProcess = Array.isArray(xmlFile) ? xmlFile[0] : xmlFile;
 
         let apiUrlFsist;
@@ -48,6 +61,7 @@ app.post('/proxy-fsist-gerarpdf', async (req, res) => {
         let responseHandler;
 
         // --- Lógica para o fluxo de upload de arquivo (do index.html) ---
+        // Prioriza a detecção de um arquivo XML enviado
         if (fileToProcess && fileToProcess.buffer) {
             console.log(`Proxy: Fluxo de upload de arquivo (index.html): ${fileToProcess.originalFilename}, tamanho: ${fileToProcess.size}`);
             
@@ -70,6 +84,7 @@ app.post('/proxy-fsist-gerarpdf', async (req, res) => {
 
         } 
         // --- Lógica para o fluxo de consulta por chave (do baixarxml.html) ---
+        // Se não houver arquivo, verifica se há chave e token
         else if (chave && chave.length === 44 && token) {
             console.log(`Proxy: Fluxo de consulta por chave (baixarxml.html): ${chave}, Tipo: ${tipoDocumento}, Token reCAPTCHA: ${token.substring(0, 10)}...`);
 
@@ -82,11 +97,18 @@ app.post('/proxy-fsist-gerarpdf', async (req, res) => {
             
             // Handler para a resposta da FSist no fluxo de consulta por chave
             responseHandler = (responseTextFsist) => {
-                const jsonMatchFsist = responseTextFsist.match(/{.*}/s);
-                if (!jsonMatchFsist) {
-                    throw new Error("Resposta da API FSist não contém um JSON válido para consulta por chave.");
+                let resultDataFsist;
+                try {
+                    // Tenta parsear diretamente se for JSON puro
+                    resultDataFsist = JSON.parse(responseTextFsist);
+                } catch (parseError) {
+                    // Se falhar, tenta extrair JSON com regex (caso esteja embutido)
+                    const jsonMatchFsist = responseTextFsist.match(/{.*}/s);
+                    if (!jsonMatchFsist) {
+                        throw new Error("Resposta da API FSist não contém um JSON válido para consulta por chave.");
+                    }
+                    resultDataFsist = JSON.parse(jsonMatchFsist[0]);
                 }
-                const resultDataFsist = JSON.parse(jsonMatchFsist[0]);
 
                 // Adapta a resposta para o frontend, incluindo linkPDF e linkXML
                 if (resultDataFsist.linkPDF || resultDataFsist.linkXML) {
@@ -97,6 +119,7 @@ app.post('/proxy-fsist-gerarpdf', async (req, res) => {
                     };
                 } else if (resultDataFsist.id && resultDataFsist.arq) {
                      // Se o FSist retornar um ID e nome de arquivo, construa os links de download
+                    // Usar o FRONTEND_URL para construir o link completo para o proxy
                     const downloadPdfLink = `${process.env.FRONTEND_URL}/proxy-fsist-downloadzip?id=${resultDataFsist.id}&arq=${encodeURIComponent(resultDataFsist.arq)}.pdf`;
                     const downloadXmlLink = `${process.env.FRONTEND_URL}/proxy-fsist-downloadzip?id=${resultDataFsist.id}&arq=${encodeURIComponent(resultDataFsist.arq)}.xml`;
                     return {
