@@ -150,7 +150,8 @@ app.post('/proxy-fsist-gerarpdf', async (req, res) => {
 
             console.log(`Proxy: Resposta da FSist Status: ${responseFsist.status}`);
             const responseTextFsist = await responseFsist.text();
-            console.log(`Proxy: Resposta bruta da FSist (início): ${responseTextFsist.substring(0, 500)}...`);
+            // Alterado para logar a resposta completa para depuração
+            console.log(`Proxy: Resposta bruta COMPLETA da FSist: ${responseTextFsist}`);
 
             if (!responseFsist.ok) {
                 console.error(`Proxy: Erro da API FSist: ${responseFsist.status} - ${responseTextFsist}`);
