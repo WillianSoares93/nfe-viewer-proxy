@@ -24,21 +24,8 @@ app.post('/proxy-fsist-gerarpdf', async (req, res) => {
     const { default: fetch } = await import('node-fetch');
     const { FormData, File } = await import('formdata-node');
 
-    // Use formidable para parsear o formulário, pois ele pode conter campos de texto e arquivos
     const form = new IncomingForm({
-        multiples: false, // Define se múltiplos arquivos podem ser enviados para o mesmo campo
-        // fileWriteStreamHandler: (file) => { // Removido, pois multer já lida com buffers
-        //     const buffers = [];
-        //     const writable = new (require('stream').Writable)();
-        //     writable._write = (chunk, encoding, callback) => {
-        //         buffers.push(chunk);
-        //         callback();
-        //     };
-        //     file.on('end', () => {
-        //         file.buffer = Buffer.concat(buffers);
-        //     });
-        //     return writable;
-        // }
+        multiples: false,
     });
 
     form.parse(req, async (err, fields, files) => {
@@ -47,38 +34,95 @@ app.post('/proxy-fsist-gerarpdf', async (req, res) => {
             return res.status(500).json({ error: 'Erro interno do servidor ao processar o upload.' });
         }
 
-        // Extrai os campos de texto do formulário
+        // Extrai campos que podem vir de ambos os formulários ou de apenas um
         const chave = Array.isArray(fields.chave) ? fields.chave[0] : fields.chave;
         const token = Array.isArray(fields.token) ? fields.token[0] : fields.token;
         const tipoDocumento = Array.isArray(fields.tipoDocumento) ? fields.tipoDocumento[0] : fields.tipoDocumento;
 
-        if (!chave || chave.length !== 44) {
-            console.error("Proxy: Chave de acesso inválida ou ausente.");
-            return res.status(400).json({ error: 'Chave de acesso inválida ou ausente.' });
-        }
-        if (!token) {
-            console.error("Proxy: Token reCAPTCHA ausente.");
-            return res.status(400).json({ error: 'Token reCAPTCHA ausente.' });
-        }
+        const xmlFile = files.arquivo;
+        const fileToProcess = Array.isArray(xmlFile) ? xmlFile[0] : xmlFile;
 
-        console.log(`Proxy: Chave recebida: ${chave}, Tipo: ${tipoDocumento}, Token reCAPTCHA: ${token.substring(0, 10)}...`);
+        let apiUrlFsist;
+        let fetchMethod;
+        let fetchBody = null;
+        let responseHandler;
 
-        try {
-            // A API da FSist espera a chave e o token como parâmetros de URL para a consulta
-            const randomNumber = Math.floor(Math.random() * (9999 - 0 + 1)) + 0;
-            let apiUrlFsist = `https://www.fsist.com.br/comandos.aspx?t=gerarpdf&arquivos=1&nomedoarquivo=&r=${randomNumber}`;
+        // --- Lógica para o fluxo de upload de arquivo (do index.html) ---
+        if (fileToProcess && fileToProcess.buffer) {
+            console.log(`Proxy: Fluxo de upload de arquivo (index.html): ${fileToProcess.originalFilename}, tamanho: ${fileToProcess.size}`);
             
-            apiUrlFsist += `&chave=${encodeURIComponent(chave)}`;
-            apiUrlFsist += `&captcha=${encodeURIComponent(token)}`; // O token reCAPTCHA é o "captcha" para a FSist
-            apiUrlFsist += `&cte=${tipoDocumento === 'CTe' ? '1' : '0'}`; // Adiciona o tipo de documento
+            const formData = new FormData();
+            formData.append('arquivo', new File([fileToProcess.buffer], fileToProcess.originalFilename, { type: fileToProcess.mimetype }));
 
-            console.log(`Proxy: Enviando para FSist: ${apiUrlFsist}`);
+            const randomNumber = Math.floor(Math.random() * (9999 - 0 + 1)) + 0;
+            apiUrlFsist = `https://www.fsist.com.br/comandos.aspx?t=gerarpdf&arquivos=1&nomedoarquivo=&r=${randomNumber}`;
+            fetchMethod = "POST";
+            fetchBody = formData;
+            
+            // Handler para a resposta da FSist no fluxo de upload de arquivo
+            responseHandler = (responseTextFsist) => {
+                const jsonMatchFsist = responseTextFsist.match(/{.*}/s);
+                if (!jsonMatchFsist) {
+                    throw new Error("Resposta da API FSist não contém um JSON válido para upload de arquivo.");
+                }
+                return JSON.parse(jsonMatchFsist[0]);
+            };
+
+        } 
+        // --- Lógica para o fluxo de consulta por chave (do baixarxml.html) ---
+        else if (chave && chave.length === 44 && token) {
+            console.log(`Proxy: Fluxo de consulta por chave (baixarxml.html): ${chave}, Tipo: ${tipoDocumento}, Token reCAPTCHA: ${token.substring(0, 10)}...`);
+
+            const randomNumber = Math.floor(Math.random() * (9999 - 0 + 1)) + 0;
+            apiUrlFsist = `https://www.fsist.com.br/comandos.aspx?t=gerarpdf&arquivos=1&nomedoarquivo=&r=${randomNumber}`;
+            apiUrlFsist += `&chave=${encodeURIComponent(chave)}`;
+            apiUrlFsist += `&captcha=${encodeURIComponent(token)}`;
+            apiUrlFsist += `&cte=${tipoDocumento === 'CTe' ? '1' : '0'}`;
+            fetchMethod = "GET"; // A API da FSist parece usar GET para a consulta inicial com chave
+            
+            // Handler para a resposta da FSist no fluxo de consulta por chave
+            responseHandler = (responseTextFsist) => {
+                const jsonMatchFsist = responseTextFsist.match(/{.*}/s);
+                if (!jsonMatchFsist) {
+                    throw new Error("Resposta da API FSist não contém um JSON válido para consulta por chave.");
+                }
+                const resultDataFsist = JSON.parse(jsonMatchFsist[0]);
+
+                // Adapta a resposta para o frontend, incluindo linkPDF e linkXML
+                if (resultDataFsist.linkPDF || resultDataFsist.linkXML) {
+                    return {
+                        status: 'OK',
+                        linkPDF: resultDataFsist.linkPDF,
+                        linkXML: resultDataFsist.linkXML
+                    };
+                } else if (resultDataFsist.id && resultDataFsist.arq) {
+                     // Se o FSist retornar um ID e nome de arquivo, construa os links de download
+                    const downloadPdfLink = `${process.env.FRONTEND_URL}/proxy-fsist-downloadzip?id=${resultDataFsist.id}&arq=${encodeURIComponent(resultDataFsist.arq)}.pdf`;
+                    const downloadXmlLink = `${process.env.FRONTEND_URL}/proxy-fsist-downloadzip?id=${resultDataFsist.id}&arq=${encodeURIComponent(resultDataFsist.arq)}.xml`;
+                    return {
+                        status: 'OK',
+                        linkPDF: downloadPdfLink,
+                        linkXML: downloadXmlLink
+                    };
+                } else {
+                    throw new Error('Resposta inesperada da API FSist para consulta por chave.');
+                }
+            };
+        } 
+        // --- Caso de erro: nenhuma das lógicas foi identificada ---
+        else {
+            console.error("Proxy: Requisição inválida. Nem arquivo XML nem chave de acesso/token reCAPTCHA foram fornecidos corretamente.");
+            return res.status(400).json({ error: 'Requisição inválida. Por favor, forneça um arquivo XML ou uma chave de acesso e token reCAPTCHA válidos.' });
+        }
+
+        // --- Lógica comum de fetch para a API FSist ---
+        try {
             const responseFsist = await fetch(apiUrlFsist, {
-                method: "GET", // A API da FSist parece usar GET para a consulta inicial
+                method: fetchMethod,
+                body: fetchBody,
             });
 
             console.log(`Proxy: Resposta da FSist Status: ${responseFsist.status}`);
-
             const responseTextFsist = await responseFsist.text();
             console.log(`Proxy: Resposta bruta da FSist (início): ${responseTextFsist.substring(0, 500)}...`);
 
@@ -101,45 +145,13 @@ app.post('/proxy-fsist-gerarpdf', async (req, res) => {
                 return res.status(500).json({ error: "API FSist retornou HTML inesperado em vez de JSON.", details: responseTextFsist.substring(0, 500) + '...' });
             }
 
-            const jsonMatchFsist = responseTextFsist.match(/{.*}/s);
-
-            if (!jsonMatchFsist) {
-                console.error("Proxy: Resposta da API FSist não contém um JSON válido ou está vazia após tentativa de extração.");
-                return res.status(500).json({ error: "Resposta da API FSist não contém um JSON válido." });
-            }
-
-            const resultDataFsist = JSON.parse(jsonMatchFsist[0]);
-            console.log("Proxy: Resposta da API FSist (JSON parseado):", resultDataFsist);
-
-            // Adapte a resposta para o frontend, incluindo linkPDF e linkXML
-            // A FSist pode retornar um link direto ou um ID para download.
-            // Se retornar um ID, você precisará usar o endpoint `/proxy-fsist-downloadzip` para obter o arquivo.
-            
-            if (resultDataFsist.linkPDF || resultDataFsist.linkXML) {
-                res.json({
-                    status: 'OK',
-                    linkPDF: resultDataFsist.linkPDF,
-                    linkXML: resultDataFsist.linkXML
-                });
-            } else if (resultDataFsist.id && resultDataFsist.arq) {
-                 // Se o FSist retornar um ID e nome de arquivo, construa os links de download
-                const downloadPdfLink = `${PROXY_BASE_URL}/proxy-fsist-downloadzip?id=${resultDataFsist.id}&arq=${encodeURIComponent(resultDataFsist.arq)}.pdf`;
-                const downloadXmlLink = `${PROXY_BASE_URL}/proxy-fsist-downloadzip?id=${resultDataFsist.id}&arq=${encodeURIComponent(resultDataFsist.arq)}.xml`;
-
-                res.json({
-                    status: 'OK',
-                    linkPDF: downloadPdfLink,
-                    linkXML: downloadXmlLink
-                });
-            } else {
-                res.status(500).json({ status: 'ERROR', message: 'Resposta inesperada da API FSist.', details: resultDataFsist });
-            }
+            const finalResult = responseHandler(responseTextFsist);
+            console.log("Proxy: Resposta final para o frontend:", finalResult);
+            res.json(finalResult);
 
         } catch (error) {
-            console.error("Proxy: Erro interno no try-catch do proxy ao gerar PDF:", error);
-            res.status(500).json({ error: 'Erro interno do servidor ao gerar DANFE.', details: error.message });
-        } finally {
-            // Não há arquivos temporários para remover, pois tudo é processado em memória
+            console.error("Proxy: Erro interno no try-catch do proxy:", error);
+            res.status(500).json({ error: 'Erro interno do servidor ao processar a requisição.', details: error.message });
         }
     });
 }); // <-- Fechamento da rota app.post('/proxy-fsist-gerarpdf')
