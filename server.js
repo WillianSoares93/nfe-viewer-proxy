@@ -88,20 +88,23 @@ app.post('/proxy-fsist-gerarpdf', async (req, res) => {
         else if (chave && chave.length === 44 && token) {
             console.log(`Proxy: Fluxo de consulta por chave (baixarxml.html): ${chave}, Tipo: ${tipoDocumento}, Token reCAPTCHA: ${token.substring(0, 10)}...`);
 
+            const fsistFormData = new FormData();
+            fsistFormData.append('chave', chave);
+            fsistFormData.append('captcha', token); // FSist espera 'captcha' para o token reCAPTCHA
+            fsistFormData.append('cte', tipoDocumento === 'CTe' ? '1' : '0'); // FSist espera 'cte' como '1' ou '0'
+
+            // Logar os dados que serão enviados para a FSist
+            console.log("Proxy: Dados FormData para FSist (consulta por chave):");
+            for (let pair of fsistFormData.entries()) {
+                console.log(`  ${pair[0]}: ${pair[1]}`);
+            }
+
             const randomNumber = Math.floor(Math.random() * (9999 - 0 + 1)) + 0;
             apiUrlFsist = `https://www.fsist.com.br/comandos.aspx?t=gerarpdf&arquivos=1&nomedoarquivo=&r=${randomNumber}`;
             
-            // MUDANÇA AQUI: Enviar chave e captcha como parâmetros de URL para GET
-            apiUrlFsist += `&chave=${encodeURIComponent(chave)}`;
-            apiUrlFsist += `&captcha=${encodeURIComponent(token)}`; // FSist espera 'captcha' para o token reCAPTCHA
-            apiUrlFsist += `&cte=${tipoDocumento === 'CTe' ? '1' : '0'}`; // FSist espera 'cte' como '1' ou '0'
-
-            fetchMethod = "GET"; // MUDANÇA CRUCIAL: Reverter para GET
-            fetchBody = null; // Não há body para requisições GET
+            fetchMethod = "POST"; // MUDANÇA CRUCIAL: Voltar para POST
+            fetchBody = fsistFormData; // Enviar o FormData com os parâmetros
             
-            // Logar a URL completa que será enviada para a FSist
-            console.log("Proxy: URL completa para FSist (consulta por chave):", apiUrlFsist);
-
             // Handler para a resposta da FSist no fluxo de consulta por chave
             responseHandler = (responseTextFsist) => {
                 // Adicionado log da resposta completa para depuração
@@ -138,6 +141,7 @@ app.post('/proxy-fsist-gerarpdf', async (req, res) => {
                         linkXML: downloadXmlLink
                     };
                 } else if (resultDataFsist.Resultado && resultDataFsist.Resultado.includes("Nenhum arquivo xml suportado")) {
+                    // Se a FSist ainda reclamar de XML não suportado, pode ser que ela não aceite consulta por chave via essa API
                     throw new Error("A chave de acesso não retornou um XML válido ou a FSist não suporta este tipo de consulta.");
                 }
                 else {
@@ -156,6 +160,10 @@ app.post('/proxy-fsist-gerarpdf', async (req, res) => {
             const responseFsist = await fetch(apiUrlFsist, {
                 method: fetchMethod,
                 body: fetchBody,
+                // Adicionando cabeçalho Accept
+                headers: {
+                    'Accept': 'application/json', 
+                }
             });
 
             console.log(`Proxy: Resposta da FSist Status: ${responseFsist.status}`);
