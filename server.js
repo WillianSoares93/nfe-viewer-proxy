@@ -97,6 +97,9 @@ app.post('/proxy-fsist-gerarpdf', async (req, res) => {
             
             // Handler para a resposta da FSist no fluxo de consulta por chave
             responseHandler = (responseTextFsist) => {
+                // Adicionado log da resposta completa para depuração
+                console.log("Proxy: Resposta COMPLETA da FSist para consulta por chave:", responseTextFsist);
+
                 let resultDataFsist;
                 try {
                     // Tenta parsear diretamente se for JSON puro
