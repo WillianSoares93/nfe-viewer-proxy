@@ -89,7 +89,9 @@ app.post('/proxy-fsist-gerarpdf', async (req, res) => {
             console.log(`Proxy: Fluxo de consulta por chave (baixarxml.html): ${chave}, Tipo: ${tipoDocumento}, Token reCAPTCHA: ${token.substring(0, 10)}...`);
 
             const fsistFormData = new FormData();
-            fsistFormData.append('chave', chave);
+            // MUDANÇA AQUI: Enviar a chave como um "arquivo" de texto simples
+            fsistFormData.append('arquivo', new File([chave], 'chave.txt', { type: 'text/plain' })); 
+            fsistFormData.append('chave', chave); // Manter também como campo de texto, por segurança
             fsistFormData.append('captcha', token); // FSist espera 'captcha' para o token reCAPTCHA
             fsistFormData.append('cte', tipoDocumento === 'CTe' ? '1' : '0'); // FSist espera 'cte' como '1' ou '0'
 
@@ -102,7 +104,7 @@ app.post('/proxy-fsist-gerarpdf', async (req, res) => {
             const randomNumber = Math.floor(Math.random() * (9999 - 0 + 1)) + 0;
             apiUrlFsist = `https://www.fsist.com.br/comandos.aspx?t=gerarpdf&arquivos=1&nomedoarquivo=&r=${randomNumber}`;
             
-            fetchMethod = "POST"; // MUDANÇA CRUCIAL: Enviar como POST para FSist novamente
+            fetchMethod = "POST"; // Manter como POST
             fetchBody = fsistFormData; // Enviar o FormData com os parâmetros
             
             // Handler para a resposta da FSist no fluxo de consulta por chave
