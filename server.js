@@ -21,8 +21,8 @@ const upload = multer();
 // Rota para o proxy da API FSist
 app.post('/proxy-fsist-gerarpdf', async (req, res) => {
     console.log('Proxy: Recebida requisição para /proxy-fsist-gerarpdf');
-    const { default: fetch } = await await import('node-fetch');
-    const { FormData, File } = await await import('formdata-node');
+    const { default: fetch } = await import('node-fetch');
+    const { FormData, File } = await import('formdata-node');
 
     const form = new IncomingForm({
         multiples: false,
@@ -88,15 +88,22 @@ app.post('/proxy-fsist-gerarpdf', async (req, res) => {
         else if (chave && chave.length === 44 && token) {
             console.log(`Proxy: Fluxo de consulta por chave (baixarxml.html): ${chave}, Tipo: ${tipoDocumento}, Token reCAPTCHA: ${token.substring(0, 10)}...`);
 
+            const fsistFormData = new FormData();
+            fsistFormData.append('chave', chave);
+            fsistFormData.append('captcha', token); // FSist espera 'captcha' para o token reCAPTCHA
+            fsistFormData.append('cte', tipoDocumento === 'CTe' ? '1' : '0'); // FSist espera 'cte' como '1' ou '0'
+
+            // Logar os dados que serão enviados para a FSist
+            console.log("Proxy: Dados FormData para FSist (consulta por chave):");
+            for (let pair of fsistFormData.entries()) {
+                console.log(`  ${pair[0]}: ${pair[1]}`);
+            }
+
             const randomNumber = Math.floor(Math.random() * (9999 - 0 + 1)) + 0;
             apiUrlFsist = `https://www.fsist.com.br/comandos.aspx?t=gerarpdf&arquivos=1&nomedoarquivo=&r=${randomNumber}`;
-            // MUDANÇA CRUCIAL: Passar todos os parâmetros na URL para GET
-            apiUrlFsist += `&chave=${encodeURIComponent(chave)}`;
-            apiUrlFsist += `&captcha=${encodeURIComponent(token)}`; // FSist espera 'captcha' para o token reCAPTCHA
-            apiUrlFsist += `&cte=${tipoDocumento === 'CTe' ? '1' : '0'}`; // FSist espera 'cte' como '1' ou '0'
-
-            fetchMethod = "GET"; // MUDANÇA CRUCIAL: Enviar como GET para FSist
-            fetchBody = null; // Não há body para requisições GET
+            
+            fetchMethod = "POST"; // MUDANÇA CRUCIAL: Enviar como POST para FSist novamente
+            fetchBody = fsistFormData; // Enviar o FormData com os parâmetros
             
             // Handler para a resposta da FSist no fluxo de consulta por chave
             responseHandler = (responseTextFsist) => {
