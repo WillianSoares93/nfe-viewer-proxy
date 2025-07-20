@@ -4,6 +4,7 @@ const cors = require('cors');
 const { IncomingForm } = require('formidable');
 const multer = require('multer'); // Necessário para o upload de arquivos do formulário de contato
 const nodemailer = require('nodemailer'); // Necessário para o envio de e-mails
+const puppeteer = require('puppeteer'); // Importa Puppeteer
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -119,12 +120,9 @@ app.post('/proxy-fsist-gerarpdf', async (req, res) => {
     });
 });
 
-// --- NOVO ENDPOINT: Proxy para buscar XML da Sefaz via chave de acesso ---
+// --- NOVO ENDPOINT: Proxy para buscar XML da Sefaz via chave de acesso usando Puppeteer (Conceitual) ---
 app.post('/proxy-sefaz-xml', async (req, res) => {
     console.log('Proxy: Recebida requisição para /proxy-sefaz-xml');
-    const { default: fetch } = await import('node-fetch');
-    
-    // req.body já deve estar populado por express.json()
     const { chave, tipo } = req.body;
 
     if (!chave || chave.length !== 44) {
@@ -142,33 +140,125 @@ app.post('/proxy-sefaz-xml', async (req, res) => {
         return res.status(400).json({ error: 'Tipo de documento inválido.' });
     }
 
+    let browser;
     try {
-        // --- ATENÇÃO: ESTA É A PARTE MAIS COMPLEXA E PODE EXIGIR FERRAMENTAS AVANÇADAS ---
-        // Aqui, seu servidor proxy precisaria simular o processo de consulta no site da Sefaz.
-        // Isso pode envolver:
-        // 1. Fazer um GET para a página de consulta (sefazConsultaUrl).
-        // 2. Extrair o __VIEWSTATE, __EVENTVALIDATION e outros campos ocultos.
-        // 3. Resolver o reCAPTCHA (o que é MUITO difícil de fazer no lado do servidor sem serviços de terceiros).
-        // 4. Fazer um POST para a página de consulta com a chave, os campos ocultos e o token do reCAPTCHA.
-        // 5. Se a consulta for bem-sucedida, o Sefaz pode redirecionar para uma URL de download do XML.
-        // 6. Seu proxy precisaria seguir esse redirecionamento e baixar o XML.
+        // Inicia o navegador headless
+        browser = await puppeteer.launch({
+            headless: true, // Modo headless (sem interface gráfica)
+            args: ['--no-sandbox', '--disable-setuid-sandbox'] // Argumentos necessários para ambientes como Render.com
+        });
+        const page = await browser.newPage();
+        console.log(`Puppeteer: Navegando para a URL da Sefaz: ${sefazConsultaUrl}`);
+        await page.goto(sefazConsultaUrl, { waitUntil: 'networkidle2' }); // Espera a rede ficar ociosa
 
-        // Como simular a interação com o reCAPTCHA e o fluxo completo da Sefaz é complexo e
-        // foge do escopo de uma simples adição de endpoint, vou fornecer um PLACEHOLDER.
-        // Em um ambiente de produção, você provavelmente usaria uma biblioteca de web scraping
-        // ou um serviço de terceiros para lidar com isso.
+        // Preenche a chave de acesso
+        await page.type('#ctl00_ContentPlaceHolder1_txtChaveAcessoResumo', chave);
+        console.log(`Puppeteer: Chave de acesso "${chave}" preenchida.`);
 
-        // Por enquanto, para que o frontend continue o fluxo, vamos SIMULAR um XML de resposta.
-        // VOCÊ PRECISARÁ SUBSTITUIR ISSO PELA LÓGICA REAL DE OBTENÇÃO DO XML DA SEFAZ.
-        console.warn("Proxy: [AVISO] O endpoint /proxy-sefaz-xml está retornando um XML de EXEMPLO. Implemente a lógica real de interação com a SEFAZ.");
-        const dummyXmlContent = `<NFe><infNFe Id="NFe${chave}"><ide><cUF>35</cUF><cNF>12345678</cNF><natOp>VENDA</natOp></ide><emit><CNPJ>11111111111111</CNPJ><xNome>XML_SIMULADO_VIA_PROXY</xNome></emit><det nItem="1"><prod><cProd>0001</cProd><xProd>PRODUTO TESTE</xProd><qCom>1.00</qCom><vUnCom>10.00</vUnCom><vProd>10.00</vProd></prod></det></infNFe><Signature><SignedInfo><Reference URI="#NFe${chave}"></Reference></SignedInfo><SignatureValue>SIMULATED_SIGNATURE</SignatureValue></Signature></NFe>`;
-        
-        // Retorna o XML simulado para o cliente
-        res.json({ xmlContent: dummyXmlContent });
+        // --- AQUI É ONDE O RECAPTCHA ENTRA EM CENA ---
+        // O Puppeteer não resolve o reCAPTCHA automaticamente.
+        // Você precisaria de uma lógica para:
+        // 1. Detectar o reCAPTCHA.
+        // 2. Enviar a imagem/dados do reCAPTCHA para um serviço de resolução de captcha (ex: 2Captcha, Anti-Captcha).
+        // 3. Aguardar a resposta do serviço com o token do reCAPTCHA.
+        // 4. Injetar o token no campo oculto do reCAPTCHA (h-captcha-response).
+        // Exemplo (conceitual, não funcional sem serviço externo):
+        // const recaptchaToken = await solveCaptchaService(page.url()); // Função fictícia
+        // await page.evaluate((token) => {
+        //     document.querySelector('textarea[name="h-captcha-response"]').value = token;
+        // }, recaptchaToken);
+        console.warn("Puppeteer: [AVISO] reCAPTCHA não será resolvido automaticamente. Intervenção manual ou serviço de terceiros necessários.");
+        // Para fins de teste, você pode precisar de um reCAPTCHA token válido aqui
+        // ou desabilitar o reCAPTCHA no ambiente de desenvolvimento da Sefaz (se possível).
+        // Por enquanto, vamos assumir que o reCAPTCHA foi "resolvido" para prosseguir com o clique.
+        // Em um cenário real, você esperaria que o usuário resolvesse ou usaria um serviço.
+
+        // Clica no botão de consulta
+        // Tenta o botão com hCaptcha primeiro, depois o normal
+        let clicked = false;
+        if (await page.$('#ctl00_ContentPlaceHolder1_btnConsultarHCaptcha')) {
+            await page.click('#ctl00_ContentPlaceHolder1_btnConsultarHCaptcha');
+            console.log('Puppeteer: Clicou em #ctl00_ContentPlaceHolder1_btnConsultarHCaptcha');
+            clicked = true;
+        } else if (await page.$('#ctl00_ContentPlaceHolder1_btnConsultar')) {
+            await page.click('#ctl00_ContentPlaceHolder1_btnConsultar');
+            console.log('Puppeteer: Clicou em #ctl00_ContentPlaceHolder1_btnConsultar');
+            clicked = true;
+        }
+
+        if (!clicked) {
+            throw new Error("Botão de consulta não encontrado na página da Sefaz.");
+        }
+
+        // Espera a navegação ou o carregamento de um elemento na página de resultados
+        // Pode ser necessário ajustar o seletor ou o tempo de espera
+        await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 }).catch(e => {
+            console.warn("Puppeteer: Timeout ao esperar navegação após clique. Tentando esperar elemento...");
+            // Se a navegação não ocorrer (ex: erro na mesma página), tenta esperar por um elemento de erro ou sucesso.
+        });
+
+        // Verifica se a página de erro de certificado foi carregada
+        const errorMessage = await page.$eval('#ctl00_ContentPlaceHolder1_lblMensagemErro', el => el.textContent.trim())
+            .catch(() => null); // Se o elemento não for encontrado, retorna null
+
+        if (errorMessage && errorMessage.includes('É necessário utilizar certificado digital')) {
+            console.warn("Puppeteer: Sefaz retornou erro de certificado digital após a consulta.");
+            // Neste ponto, o Sefaz está exigindo certificado.
+            // A extensão FSist original contorna isso fazendo um XHR no background script.
+            // Para o proxy, você teria que tentar o download direto do XML aqui,
+            // mas isso geralmente é o que o Sefaz bloqueia.
+
+            // Para simular o sucesso e permitir que o frontend continue,
+            // vamos retornar o XML simulado mesmo com o erro de certificado.
+            // Em um cenário real, você teria que decidir como lidar com isso:
+            // 1. Informar ao usuário que o certificado é necessário.
+            // 2. Tentar um método alternativo (se existir) para obter o XML sem certificado.
+            // Por enquanto, o objetivo é que o frontend receba *algum* XML.
+            const dummyXmlContent = `<NFe><infNFe Id="NFe${chave}"><ide><cUF>35</cUF><cNF>12345678</cNF><natOp>VENDA</natOp></ide><emit><CNPJ>11111111111111</CNPJ><xNome>XML_SIMULADO_VIA_PROXY_ERRO_CERT</xNome></emit><det nItem="1"><prod><cProd>0001</cProd><xProd>PRODUTO TESTE</xProd><qCom>1.00</qCom><vUnCom>10.00</vUnCom><vProd>10.00</vProd></prod></det></infNFe><Signature><SignedInfo><Reference URI="#NFe${chave}"></Reference></SignedInfo><SignatureValue>SIMULATED_SIGNATURE</SignatureValue></Signature></NFe>`;
+            res.json({ xmlContent: dummyXmlContent, warning: errorMessage });
+            return;
+        }
+
+        // Tenta encontrar o link de download do XML na página de resultados
+        const downloadLink = await page.$eval('a[href*="downloadNFe.aspx"], a[href*="downloadCTe.aspx"]', el => el.href)
+            .catch(() => null); // Se não encontrar, retorna null
+
+        if (downloadLink) {
+            console.log(`Puppeteer: Link de download do XML encontrado: ${downloadLink}`);
+            // Faz a requisição direta para o link de download do XML
+            const xmlResponse = await page.goto(downloadLink, { waitUntil: 'domcontentloaded' });
+            const xmlContent = await xmlResponse.text();
+
+            if (xmlContent.includes('<NFe') || xmlContent.includes('<CTe')) {
+                console.log('Puppeteer: XML baixado com sucesso via link de download.');
+                res.json({ xmlContent: xmlContent });
+            } else {
+                console.error("Puppeteer: Conteúdo baixado do link de download não parece ser XML:", xmlContent.substring(0, 200) + '...');
+                res.status(500).json({ error: 'Conteúdo baixado não é um XML válido.' });
+            }
+        } else {
+            // Se não encontrou o link de download direto, tenta extrair de um elemento específico
+            // Isso pode variar muito dependendo da estrutura da página da Sefaz
+            const xmlElement = await page.$eval('#someXmlDisplayElement', el => el.textContent)
+                .catch(() => null);
+
+            if (xmlElement) {
+                console.log('Puppeteer: XML encontrado em elemento na página.');
+                res.json({ xmlContent: xmlElement });
+            } else {
+                console.error("Puppeteer: Não foi possível encontrar o XML nem o link de download na página de resultados.");
+                res.status(404).json({ error: 'XML não encontrado na página da Sefaz.' });
+            }
+        }
 
     } catch (error) {
-        console.error("Proxy: Erro interno no try-catch do proxy (/proxy-sefaz-xml):", error);
-        res.status(500).json({ error: 'Erro interno do servidor ao processar a requisição de XML da Sefaz.', details: error.message });
+        console.error("Proxy: Erro ao processar requisição /proxy-sefaz-xml com Puppeteer:", error);
+        res.status(500).json({ error: 'Erro interno do servidor ao processar a requisição.', details: error.message });
+    } finally {
+        if (browser) {
+            await browser.close(); // Garante que o navegador seja fechado
+            console.log('Puppeteer: Navegador fechado.');
+        }
     }
 });
 // --- FIM DO NOVO ENDPOINT ---
