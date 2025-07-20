@@ -14,6 +14,12 @@ app.use(cors({
     origin: process.env.FRONTEND_URL
 }));
 
+// Adiciona middleware para parsear corpos de requisição JSON
+// Isso é crucial para que req.body funcione corretamente para o endpoint /proxy-sefaz-xml
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+
 // Configuração do Multer para lidar com uploads de arquivos para o formulário de contato
 // Não salva em disco, apenas em memória (req.files)
 const upload = multer(); 
@@ -117,9 +123,8 @@ app.post('/proxy-fsist-gerarpdf', async (req, res) => {
 app.post('/proxy-sefaz-xml', async (req, res) => {
     console.log('Proxy: Recebida requisição para /proxy-sefaz-xml');
     const { default: fetch } = await import('node-fetch');
-    // Não precisamos de FormData ou File aqui, pois esperamos JSON no corpo
     
-    // Usar express.json() para parsear o corpo da requisição
+    // req.body já deve estar populado por express.json()
     const { chave, tipo } = req.body;
 
     if (!chave || chave.length !== 44) {
@@ -128,9 +133,6 @@ app.post('/proxy-sefaz-xml', async (req, res) => {
     }
 
     let sefazConsultaUrl = '';
-    // As URLs aqui devem ser as URLs de consulta da SEFAZ que a extensão tentaria acessar
-    // Você pode precisar de uma lógica mais complexa aqui para simular a navegação
-    // e a resolução do reCAPTCHA no lado do servidor, ou usar um serviço que faça isso.
     if (tipo === 'NFe') {
         sefazConsultaUrl = `https://www.nfe.fazenda.gov.br/portal/consultaRecaptcha.aspx?tipoConsulta=resumo&tipoConteudo=7PhJ+gAVw2g=`;
     } else if (tipo === 'CTe') {
