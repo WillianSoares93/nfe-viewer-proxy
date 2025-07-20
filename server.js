@@ -113,79 +113,64 @@ app.post('/proxy-fsist-gerarpdf', async (req, res) => {
     });
 });
 
-// NOVO ENDPOINT para o fluxo de CONSULTA DE CHAVE DE ACESSO (usado pelo baixarxml.html)
-app.post('/proxy-fsist-consultar-sefaz', async (req, res) => {
-    console.log('Proxy: Recebida requisição para /proxy-fsist-consultar-sefaz');
+// --- NOVO ENDPOINT: Proxy para buscar XML da Sefaz via chave de acesso ---
+app.post('/proxy-sefaz-xml', async (req, res) => {
+    console.log('Proxy: Recebida requisição para /proxy-sefaz-xml');
     const { default: fetch } = await import('node-fetch');
-    const { FormData } = await import('formdata-node'); // Não precisamos de 'File' aqui
+    // Não precisamos de FormData ou File aqui, pois esperamos JSON no corpo
+    
+    // Usar express.json() para parsear o corpo da requisição
+    const { chave, tipo } = req.body;
 
-    const form = new IncomingForm({
-        multiples: false,
-    });
+    if (!chave || chave.length !== 44) {
+        console.error("Proxy: Chave de acesso inválida ou ausente para /proxy-sefaz-xml.");
+        return res.status(400).json({ error: 'Chave de acesso inválida (deve ter 44 dígitos) ou ausente.' });
+    }
 
-    form.parse(req, async (err, fields) => {
-        if (err) {
-            console.error("Proxy: Erro ao parsear formulário para consulta SEFAZ:", err);
-            return res.status(500).json({ error: 'Erro interno do servidor ao processar a requisição.' });
-        }
+    let sefazConsultaUrl = '';
+    // As URLs aqui devem ser as URLs de consulta da SEFAZ que a extensão tentaria acessar
+    // Você pode precisar de uma lógica mais complexa aqui para simular a navegação
+    // e a resolução do reCAPTCHA no lado do servidor, ou usar um serviço que faça isso.
+    if (tipo === 'NFe') {
+        sefazConsultaUrl = `https://www.nfe.fazenda.gov.br/portal/consultaRecaptcha.aspx?tipoConsulta=resumo&tipoConteudo=7PhJ+gAVw2g=`;
+    } else if (tipo === 'CTe') {
+        sefazConsultaUrl = `https://www.cte.fazenda.gov.br/portal/consultaRecaptcha.aspx?tipoConsulta=resumo&tipoConteudo=mCK/KoCqru0=`;
+    } else {
+        console.error("Proxy: Tipo de documento inválido para /proxy-sefaz-xml:", tipo);
+        return res.status(400).json({ error: 'Tipo de documento inválido.' });
+    }
 
-        const chave = Array.isArray(fields.chave) ? fields.chave[0] : fields.chave;
-        const token = Array.isArray(fields.token) ? fields.token[0] : fields.token;
-        const tipoDocumento = Array.isArray(fields.tipoDocumento) ? fields.tipoDocumento[0] : fields.tipoDocumento;
+    try {
+        // --- ATENÇÃO: ESTA É A PARTE MAIS COMPLEXA E PODE EXIGIR FERRAMENTAS AVANÇADAS ---
+        // Aqui, seu servidor proxy precisaria simular o processo de consulta no site da Sefaz.
+        // Isso pode envolver:
+        // 1. Fazer um GET para a página de consulta (sefazConsultaUrl).
+        // 2. Extrair o __VIEWSTATE, __EVENTVALIDATION e outros campos ocultos.
+        // 3. Resolver o reCAPTCHA (o que é MUITO difícil de fazer no lado do servidor sem serviços de terceiros).
+        // 4. Fazer um POST para a página de consulta com a chave, os campos ocultos e o token do reCAPTCHA.
+        // 5. Se a consulta for bem-sucedida, o Sefaz pode redirecionar para uma URL de download do XML.
+        // 6. Seu proxy precisaria seguir esse redirecionamento e baixar o XML.
 
-        if (!chave || chave.length !== 44 || !token) {
-            console.error("Proxy: Chave de acesso ou token reCAPTCHA inválidos ou ausentes para consulta SEFAZ.");
-            return res.status(400).json({ error: 'Chave de acesso inválida (deve ter 44 dígitos) ou token reCAPTCHA ausente.' });
-        }
+        // Como simular a interação com o reCAPTCHA e o fluxo completo da Sefaz é complexo e
+        // foge do escopo de uma simples adição de endpoint, vou fornecer um PLACEHOLDER.
+        // Em um ambiente de produção, você provavelmente usaria uma biblioteca de web scraping
+        // ou um serviço de terceiros para lidar com isso.
 
-        console.log(`Proxy: Fluxo de consulta SEFAZ: Chave: ${chave}, Tipo: ${tipoDocumento}, Token reCAPTCHA: ${token.substring(0, 10)}...`);
+        // Por enquanto, para que o frontend continue o fluxo, vamos SIMULAR um XML de resposta.
+        // VOCÊ PRECISARÁ SUBSTITUIR ISSO PELA LÓGICA REAL DE OBTENÇÃO DO XML DA SEFAZ.
+        console.warn("Proxy: [AVISO] O endpoint /proxy-sefaz-xml está retornando um XML de EXEMPLO. Implemente a lógica real de interação com a SEFAZ.");
+        const dummyXmlContent = `<NFe><infNFe Id="NFe${chave}"><ide><cUF>35</cUF><cNF>12345678</cNF><natOp>VENDA</natOp></ide><emit><CNPJ>11111111111111</CNPJ><xNome>XML_SIMULADO_VIA_PROXY</xNome></emit><det nItem="1"><prod><cProd>0001</cProd><xProd>PRODUTO TESTE</xProd><qCom>1.00</qCom><vUnCom>10.00</vUnCom><vProd>10.00</vProd></prod></det></infNFe><Signature><SignedInfo><Reference URI="#NFe${chave}"></Reference></SignedInfo><SignatureValue>SIMULATED_SIGNATURE</SignatureValue></Signature></NFe>`;
+        
+        // Retorna o XML simulado para o cliente
+        res.json({ xmlContent: dummyXmlContent });
 
-        const randomNumber = Math.floor(Math.random() * (9999 - 0 + 1)) + 0;
-        // Construindo a URL para a API da FSist para o tipo de consulta
-        let apiUrlFsist = `https://www.fsist.com.br/comandos.aspx?t=consulta&v=2&arquivos=1&nomedoarquivo=&r=${randomNumber}`;
-        apiUrlFsist += `&chave=${encodeURIComponent(chave)}`;
-        apiUrlFsist += `&captcha=${encodeURIComponent(token)}`;
-        apiUrlFsist += `&cte=${tipoDocumento === 'CTe' ? '1' : '0'}`;
-
-        console.log("Proxy: URL completa para FSist (consulta SEFAZ):", apiUrlFsist);
-
-        try {
-            const responseFsist = await fetch(apiUrlFsist, {
-                method: "GET", // A página original usa GET para esta consulta
-                headers: {
-                    'Accept': 'text/plain', // Esperamos uma resposta simples como "OK" ou erro
-                }
-            });
-
-            console.log(`Proxy: Resposta da FSist Status (consulta SEFAZ): ${responseFsist.status}`);
-            const responseTextFsist = await responseFsist.text();
-            console.log(`Proxy: Resposta bruta COMPLETA da FSist (consulta SEFAZ): ${responseTextFsist}`);
-
-            if (!responseFsist.ok) {
-                console.error(`Proxy: Erro da API FSist (consulta SEFAZ): ${responseFsist.status} - ${responseTextFsist}`);
-                return res.status(responseFsist.status).json({
-                    status: 'ERROR',
-                    message: `Erro da API FSist: ${responseFsist.status} ${responseFsist.statusText}`,
-                    details: responseTextFsist
-                });
-            }
-
-            const trimmedResponse = responseTextFsist.trim();
-
-            if (trimmedResponse === "OK") {
-                console.log("Proxy: Consulta SEFAZ bem-sucedida.");
-                res.json({ status: 'OK' });
-            } else {
-                console.error("Proxy: Resposta de erro da FSist para consulta SEFAZ:", trimmedResponse);
-                res.status(400).json({ status: 'ERROR', message: trimmedResponse || 'Erro desconhecido na consulta da FSist.' });
-            }
-
-        } catch (error) {
-            console.error("Proxy: Erro interno no try-catch do proxy (consulta SEFAZ):", error);
-            res.status(500).json({ status: 'ERROR', message: 'Erro interno do servidor ao processar a requisição de consulta SEFAZ.', details: error.message });
-        }
-    });
+    } catch (error) {
+        console.error("Proxy: Erro interno no try-catch do proxy (/proxy-sefaz-xml):", error);
+        res.status(500).json({ error: 'Erro interno do servidor ao processar a requisição de XML da Sefaz.', details: error.message });
+    }
 });
+// --- FIM DO NOVO ENDPOINT ---
+
 
 // Rota para o proxy de download do ZIP da API FSist
 app.get('/proxy-fsist-downloadzip', async (req, res) => {
