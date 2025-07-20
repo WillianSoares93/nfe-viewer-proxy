@@ -4,7 +4,8 @@ const cors = require('cors');
 const { IncomingForm } = require('formidable');
 const multer = require('multer'); // Necessário para o upload de arquivos do formulário de contato
 const nodemailer = require('nodemailer'); // Necessário para o envio de e-mails
-const puppeteer = require('puppeteer'); // Importa Puppeteer
+const puppeteer = require('puppeteer-core'); // Importa puppeteer-core
+const chromium = require('@sparticvs/chromium'); // Importa o Chromium otimizado para nuvem
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -142,10 +143,12 @@ app.post('/proxy-sefaz-xml', async (req, res) => {
 
     let browser;
     try {
-        // Inicia o navegador headless
+        // Inicia o navegador headless usando o executável do Chromium otimizado
         browser = await puppeteer.launch({
-            headless: true, // Modo headless (sem interface gráfica)
-            args: ['--no-sandbox', '--disable-setuid-sandbox'] // Argumentos necessários para ambientes como Render.com
+            args: chromium.args, // Argumentos otimizados para ambientes headless
+            executablePath: await chromium.executablePath(), // Caminho para o executável do Chromium
+            headless: chromium.headless, // Define o modo headless
+            ignoreHTTPSErrors: true // Pode ser útil para alguns sites, mas use com cautela
         });
         const page = await browser.newPage();
         console.log(`Puppeteer: Navegando para a URL da Sefaz: ${sefazConsultaUrl}`);
