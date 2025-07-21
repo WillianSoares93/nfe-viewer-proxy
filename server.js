@@ -5,7 +5,7 @@ const { IncomingForm } = require('formidable');
 const multer = require('multer'); // Necessário para o upload de arquivos do formulário de contato
 const nodemailer = require('nodemailer'); // Necessário para o envio de e-mails
 const puppeteer = require('puppeteer-core'); // Importa puppeteer-core
-const chromium = require('@sparticvs/chromium'); // Importa o Chromium otimizado para nuvem
+const chromium = require('@sparticuz/chromium'); // CORRIGIDO: Nome do pacote agora é @sparticuz/chromium
 
 const app = express();
 const PORT = process.env.PORT || 3001;
